@@ -1,0 +1,26 @@
+plugins {
+    id "java"
+}
+
+group "org.example"
+version "1.0-SNAPSHOT"
+
+repositories {
+    mavenCentral()
+}
+def otelVersion = "1.9.1"
+dependencies {
+    implementation(platform("com.azure:azure-sdk-bom:1.0.6"))
+    implementation "com.azure:azure-messaging-servicebus"
+
+    implementation "com.azure:azure-core-tracing-opentelemetry:1.0.0-beta.17"
+
+    implementation "io.opentelemetry:opentelemetry-api:$otelVersion"
+    implementation "io.opentelemetry:opentelemetry-extension-annotations:$otelVersion"
+    implementation "io.opentelemetry:opentelemetry-context:$otelVersion"
+    implementation "io.opentelemetry:opentelemetry-sdk:$otelVersion"
+}
+
+test {
+    useJUnitPlatform()
+}
