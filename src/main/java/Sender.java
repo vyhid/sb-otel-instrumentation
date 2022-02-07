@@ -17,7 +17,7 @@ public class Sender {
         ServiceBusSenderClient sender = new ServiceBusClientBuilder()
                 .connectionString(AsyncReceiver.newCs)
                 .sender()
-                .topicName("otel-test")
+                .topicName("testme")
                 .buildClient();
 
         // When you are done using the sender, dispose of it.

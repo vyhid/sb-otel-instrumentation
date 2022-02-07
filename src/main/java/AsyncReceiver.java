@@ -1,13 +1,45 @@
 import com.azure.messaging.servicebus.ServiceBusClientBuilder;
 import com.azure.messaging.servicebus.ServiceBusReceivedMessage;
 import com.azure.messaging.servicebus.ServiceBusReceiverAsyncClient;
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.propagation.TextMapGetter;
 import io.opentelemetry.extension.annotations.WithSpan;
+
+import java.util.List;
+import java.util.Map;
 
 
 public class AsyncReceiver {
 
-    public static String newCs = "<your-connection-string>";
+    public static String newCs = "<connection-string>";
+    private final static Tracer TRACER = GlobalOpenTelemetry.getTracer("app");
+
+    private static final Iterable<String> KEYS = List.of(com.azure.core.util.tracing.Tracer.DIAGNOSTIC_ID_KEY);
+    private static final TextMapGetter<ServiceBusReceivedMessage> SERVICE_BUS_CONTEXT_GETTER =
+            new TextMapGetter<ServiceBusReceivedMessage>() {
+                @Override
+                public Iterable<String> keys(ServiceBusReceivedMessage carrier) {
+                    return KEYS;
+                }
+
+                @Override
+                public String get(ServiceBusReceivedMessage carrier, String key) {
+                    if ("traceparent".equals(key)) {
+                        Object value = carrier.getApplicationProperties().get(com.azure.core.util.tracing.Tracer.DIAGNOSTIC_ID_KEY);
+                        return value == null ? null : value.toString();
+                    }
+
+                    return null;
+                }
+            };
 
 //    Env variables
 //    OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:8200
@@ -18,7 +50,7 @@ public class AsyncReceiver {
         ServiceBusReceiverAsyncClient asyncClient = new ServiceBusClientBuilder()
                 .connectionString(newCs)
                 .receiver()
-                .topicName("otel-test")
+                .topicName("testme")
                 .subscriptionName("otel-test-subscription")
                 .buildAsyncClient();
 
@@ -43,11 +75,21 @@ public class AsyncReceiver {
 
 
     private static void accept(ServiceBusReceivedMessage msg) {
-        System.out.println("msg.body : " + msg.getBody());
-        System.out.println("msg.properties : " + msg.getApplicationProperties());
-        Span currentSpan = Span.current();
-        doSomeJob();
-        System.out.println("trace-id: " + currentSpan.getSpanContext().getTraceId());
+        Context remoteContext = W3CTraceContextPropagator.getInstance().extract(Context.current(), msg, SERVICE_BUS_CONTEXT_GETTER);
+
+        Span span = TRACER.spanBuilder("ServiceBus.process").setParent(remoteContext).setSpanKind(SpanKind.CONSUMER).startSpan();
+        try (Scope scope = Context.current().with(span).makeCurrent()) {
+            System.out.println("msg.body : " + msg.getBody());
+            System.out.println("msg.properties : " + msg.getApplicationProperties());
+            doSomeJob();
+            System.out.println("trace-id: " + span.getSpanContext().getTraceId());
+            span.setStatus(StatusCode.OK);
+        } catch (Throwable t) {
+            span.recordException(t);
+            span.setStatus(StatusCode.ERROR);
+        } finally {
+            span.end();
+        }
     }
 }
 
